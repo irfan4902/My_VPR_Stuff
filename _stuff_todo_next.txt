@@ -1,0 +1,31 @@
+optimizations:
+- static quantization
+- torch.compile
+    - torchscript
+- pca
+- tsne
+
+metrics
+- accuracy
+- precision
+- recall
+- f1 score
+- memory consumption
+- recall against memory consumption
+- accuracy against memory consumption
+- recall against parameter count
+
+raspberry pi
+- get same metrics measured on pc
+- temperature
+- power consumption
+
+extensions: 
+- use camera
+- gui application
+- make own dataset
+
+1. torch compile
+2. get quanto working
+
+docker
