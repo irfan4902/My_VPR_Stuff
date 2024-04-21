@@ -75,7 +75,7 @@ class CalcModel(nn.Module):
             self.lrn1 = nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75)
             self.lrn2 = nn.LocalResponseNorm(5, alpha=0.0001, beta=0.75)
 
-        # @torch.compile
+        @torch.compile
         def forward(self, x):
             x = self.relu1(self.conv1(x))
             x = self.pool(x)
@@ -91,8 +91,8 @@ class CalcModel(nn.Module):
 
 if __name__ == '__main__':
 
-    dataset_db = CustomImageDataset("images\SFU", "dry", preprocess)
-    dataset_q = CustomImageDataset("images\SFU", "jan", preprocess)
+    dataset_db = CustomImageDataset("images/SFU", "dry", preprocess)
+    dataset_q = CustomImageDataset("images/SFU", "jan", preprocess)
 
     print("Dataset Length:", len(dataset_db))
     dataset_db[0]
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     print(calc)
 
     # Compile the model
-    # calc = torch.compile(calc)
+    calc_compiled = torch.compile(calc)
 
     # Run Models
 
