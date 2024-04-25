@@ -1,4 +1,3 @@
-from multiprocessing import freeze_support
 import os
 import time
 

@@ -29,3 +29,8 @@ extensions:
 2. get quanto working
 
 docker
+
+
+stuff to ask:
+- what's expected in the report?
+- appendix?
