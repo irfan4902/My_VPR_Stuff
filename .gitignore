@@ -1,1 +1,4 @@
 images
+datasets/__pycache__
+evaluation/__pycache__
+matching/__pycache__
