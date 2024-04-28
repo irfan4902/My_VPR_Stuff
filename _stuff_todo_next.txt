@@ -25,12 +25,19 @@ extensions:
 - gui application
 - make own dataset
 
-1. torch compile
-2. get quanto working
-
 docker
-
 
 stuff to ask:
 - what's expected in the report?
 - appendix?
+- github?
+
+- make calc_test6
+- collect metrics and plot everything
+- make individual calc programs for each type of optimization
+- make it save the results to a txt file?
+- upload files to pi
+- test each one
+- try out other optimizations
+    - pruning
+    - knowledge distilation
