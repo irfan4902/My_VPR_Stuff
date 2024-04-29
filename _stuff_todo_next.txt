@@ -42,7 +42,12 @@ stuff to ask:
     - pruning
     - knowledge distilation
 
+- visualise onnx graph
+- cannot run matplotlib on pi
+
 things to ask oliver:
+- my code: 
+    - precision accuracy
+    - feature extraction latency vs matching latency
 - camera step-by-step how to deploy
-- my code: precision accuracy
 - use different programming language? c so it runs quicker and can free up memory
