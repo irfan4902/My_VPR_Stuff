@@ -3,10 +3,10 @@ WEIGHTS_FILE = "calc.caffemodel.pt"
 DATASET = "GardensPoint"
 DATABASE_FOLDER = "day_right"
 QUERY_FOLDER = "night_right"
-ITERATIONS = 50 # for testing average duration
-BATCH_SIZE = 32 # dataloader batch_size
+ITERATIONS = 100 # for testing average duration
+BATCH_SIZE = 64 # dataloader batch_size
 NUM_WORKERS = 8 # dataloader num_workers (threads)
-DATA_TEXT_FILE = 'data_quant_static_laptop.txt' # save the average database and query times to this file
+DATA_TEXT_FILE = 'data_quant_static_desktop.txt' # save the average database and query times to this file
 
 
 ### Imports ###
