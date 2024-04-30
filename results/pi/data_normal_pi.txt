@@ -1,0 +1,2 @@
+Database Average Time: 36.314987373352054
+Query Average Time: 32.18433980941772
