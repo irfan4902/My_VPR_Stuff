@@ -3,10 +3,10 @@ WEIGHTS_FILE = "calc.caffemodel.pt"
 DATASET = "GardensPoint"
 DATABASE_FOLDER = "day_right"
 QUERY_FOLDER = "night_right"
-ITERATIONS = 50 # for testing average duration
-BATCH_SIZE = 32 # dataloader batch_size
-NUM_WORKERS = 8 # dataloader num_workers (threads)
-DATA_TEXT_FILE = 'data_normal_laptop2.txt' # save the average database and query times to this file
+ITERATIONS = 5 # for testing average duration
+BATCH_SIZE = 8 # dataloader batch_size
+NUM_WORKERS = 4 # dataloader num_workers (threads)
+DATA_TEXT_FILE = 'data_normal.txt' # save the average database and query times to this file
 
 
 ### Imports ###
@@ -140,58 +140,19 @@ calc.load_state_dict(my_new_state_dict)
 print(calc)
 
 
+
 ### Run Models ###
 
-def run_model(dataloader, model):
-    features = []
-
-    with torch.no_grad():
-        for batch in dataloader:
-            output = model(batch)
-            features.append(output)
-
-    features = torch.cat(features, axis=0)
-    return features
-
-calc.eval()
-
-# Process database tensor
-db_features = run_model(db_dataloader, calc)
-print(db_features.shape)
-
-# Process query tensor
-q_features = run_model(q_dataloader, calc)
-print(q_features.shape)
 
 
 ### Average Time ###
 
-def measure_time(dataloader, model, iterations, desc):
-
-    start_time = time.time()
-
-    for _ in tqdm(range(iterations), desc=desc):
-        
-        run_model(dataloader, model)
-
-    end_time = time.time()
-
-    avg_time = (end_time - start_time) / iterations
-
-    return avg_time
-
-db_time = measure_time(db_dataloader, calc, ITERATIONS, "Processing database dataset")
-print(f"Database Average Time: {db_time}")
-
-q_time = measure_time(q_dataloader, calc, ITERATIONS, "Processing query dataset")
-print(f"Query Average Time: {q_time}")
 
 
 ### Evaluation ###
 
-
 # Convert the predictions to a numpy array
-features = db_features.detach().cpu().numpy()
+features = db_features_quant_dynamic.detach().cpu().numpy()
 
 # Get the predicted labels (assuming a binary classification problem)
 predicted_labels = (features > 0.9).astype(int)
@@ -206,7 +167,7 @@ predicted_labels = features.argmax(axis=1)
 accuracy = (predicted_labels == true_labels).mean()
 print('Accuracy:', accuracy)
 
-similarity_matrix = cosine_similarity(db_features.detach().numpy(), q_features.detach().numpy())
+similarity_matrix = cosine_similarity(db_features_quant_dynamic.detach().numpy(), q_features_quant_dynamic.detach().numpy())
 
 # best matching per query in S for single-best-match VPR
 M1 = matching.best_match_per_query(similarity_matrix)
@@ -232,5 +193,5 @@ print('F1 score:', f1)
 # Save data to file
 with open(DATA_TEXT_FILE, 'w') as f:
     # Write the database and query times to the file
-    f.write(f"Database Average Time: {db_time}\n")
-    f.write(f"Query Average Time: {q_time}\n")
+    f.write(f"Database Average Time: {db_time_quant_dynamic}\n")
+    f.write(f"Query Average Time: {q_time_quant_dynamic}\n")

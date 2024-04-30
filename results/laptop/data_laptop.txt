@@ -1,0 +1,12 @@
+Database Average Time: 2.626280508041382
+Query Average Time: 2.165402307510376
+Database Average Time (ONNX): 1.9718628454208373
+Query Average Time: 1.533917360305786
+Database Average Time (Dynamic Quantization): 2.5652179479599
+Query Average Time: 2.1462082958221433
+Database Average Time (Static Quantization): 2.2715557336807253
+Query Average Time: 1.8300382852554322
+Database Average Time (Torch Compile): 2.3258931064605712
+Query Average Time: 1.6615534591674805
+Total Parameters: 137476
+Memory Size: 537.015625

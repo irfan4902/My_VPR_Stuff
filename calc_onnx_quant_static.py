@@ -1,29 +1,34 @@
-# %% [markdown]
-# # Import Stuff
+### Constants ###
+WEIGHTS_FILE = "calc.caffemodel.pt"
+DATASET = "GardensPoint"
+DATABASE_FOLDER = "day_right"
+QUERY_FOLDER = "night_right"
+ITERATIONS = 50 # for testing average duration
+BATCH_SIZE = 32 # dataloader batch_size
+NUM_WORKERS = 8 # dataloader num_workers (threads)
+DATA_TEXT_FILE = 'data_quant_static_laptop.txt' # save the average database and query times to this file
 
-# # %%
-# %pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-# %pip install opencv-python numpy seaborn matplotlib scikit-learn ipykernel tqdm pillow
-# %pip install onnx onnxruntime quanto
 
-# %%
+### Imports ###
 import os
 import time
 import torch 
 import torch.nn as nn
 import torch.nn.functional as F
-import onnx
-import onnxruntime
 import numpy as np
 import cv2
 import seaborn as sns
-import matplotlib.pyplot as plt
+import onnx
+import onnxruntime
+from onnxruntime.quantization import quantize_dynamic, QuantType
+from onnxruntime.quantization.shape_inference import quant_pre_process
+from onnxruntime.quantization.calibrate import CalibrationDataReader
+from onnxruntime.quantization import quantize_static
 from tqdm import tqdm
-
+from matplotlib import pyplot as plt
 from sklearn.metrics.pairwise import cosine_similarity
 from PIL import Image
 from torchvision import transforms
-from matplotlib import pyplot as plt
 from torch.utils.data import Dataset, DataLoader
 import torch.utils.data as data
 
@@ -32,27 +37,23 @@ from matching import matching
 from evaluation.metrics import createPR, recallAt100precision, recallAtK
 from datasets.load_dataset import GardensPointDataset, SFUDataset, StLuciaDataset
 
-# %%
+### Load Dataset ###
+# Uncomment to download the desired chosen dataset to the images folder
 # GardensPointDataset().load()
 # SFUDataset().load()
 # StLuciaDataset().load()
 
-# %% [markdown]
-# # Constants
+# Uncomment this line if using GardensPoint
+_, _, gt_hard, gt_soft = GardensPointDataset().load()
 
-# %%
-WEIGHTS_FILE = "calc.caffemodel.pt"
-DATASET = "SFU"
-DATABASE_FOLDER = "dry"
-QUERY_FOLDER = "jan"
-ITERATIONS = 5 # for testing average duration
-BATCH_SIZE = 8
-NUM_WORKERS = 4
+# Uncomment these lines if using SFU or StLucia
+# gt_data = np.load(f'images/{DATASET}/GT.npz')
+# gt_hard = gt_data['GThard']
+# gt_soft = gt_data['GTsoft']
 
-# %% [markdown]
-# # Preprocess Images
 
-# %%
+### Preprocess Images ###
+
 class ConvertToYUVandEqualizeHist:
     def __call__(self, img):
         img_yuv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2YUV)
@@ -69,7 +70,6 @@ preprocess = transforms.Compose(
     ]
 )
 
-# %%
 class CustomImageDataset(Dataset):
     def __init__(self, name, folder, transform=None):
         
@@ -88,24 +88,17 @@ class CustomImageDataset(Dataset):
             img = self.transform(img)
         return(img)
 
-# %%
 dataset_db = CustomImageDataset(f"images/{DATASET}", DATABASE_FOLDER, preprocess)
 dataset_q = CustomImageDataset(f"images/{DATASET}", QUERY_FOLDER, preprocess)
-gt_data = np.load(f'images/{DATASET}/GT.npz')
-gt_hard = gt_data['GThard']
-gt_soft = gt_data['GTsoft']
 
 print("Dataset Length:", len(dataset_db))
 dataset_db[0]
 
-# %%
 db_dataloader = DataLoader(dataset_db, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 q_dataloader = DataLoader(dataset_q, batch_size=BATCH_SIZE, shuffle=False, num_workers=NUM_WORKERS)
 
-# %% [markdown]
-# # Model Definition
+### Model Definition ###
 
-# %%
 class CalcModel(nn.Module):
     def __init__(self):
         super().__init__()
@@ -134,25 +127,41 @@ class CalcModel(nn.Module):
         x = torch.flatten(x, 1)
         return x
 
-# %% [markdown]
-# ### Static Quantization (ONNX)
+calc = CalcModel()
 
-# %%
-from onnxruntime.quantization.shape_inference import quant_pre_process
+# Load the model weights
+state_dict = torch.load(WEIGHTS_FILE)
+my_new_state_dict = {}
+my_layers = list(calc.state_dict().keys())
+for layer in my_layers:
+    my_new_state_dict[layer] = state_dict[layer]
+calc.load_state_dict(my_new_state_dict)
 
-quant_pre_process('calc_model.onnx', 'calc_model_quant_static_prep.onnx')
+print(calc)
+
+example_input = torch.randn(1, 1, 120, 160)
+
+dynamic_axes = {"input": {0: "batch_size"}, "output": {0: "batch_size"}}
+
+# Export the model
+torch.onnx.export(
+    calc,  # model
+    example_input,  # example input
+    "calc_model.onnx",  # output file name
+    input_names=["input"],  # input names
+    output_names=["output"],  # output names
+    dynamic_axes=dynamic_axes,  # dynamic axes
+)
 
 ort_session = onnxruntime.InferenceSession("calc_model.onnx")
 
-# %%
+quant_pre_process('calc_model.onnx', 'calc_model_quant_static_prep.onnx')
+
 calib_ds = torch.stack([dataset_db[i] for i in range(100)])
 val_ds = torch.stack([dataset_db[i] for i in range(100, len(dataset_db))])
 
 print(calib_ds.shape)
 print(val_ds.shape)
-
-# %%
-from onnxruntime.quantization.calibrate import CalibrationDataReader
 
 class QuantizationDataReader(CalibrationDataReader):
     def __init__(self, torch_ds, batch_size, input_name):
@@ -180,18 +189,8 @@ class QuantizationDataReader(CalibrationDataReader):
 
 qdr = QuantizationDataReader(calib_ds, batch_size=64, input_name=ort_session.get_inputs()[0].name)
 
-# %%
-from onnxruntime.quantization import quantize_static
-
 q_static_opts = {"ActivationSymmetric":False,
                  "WeightSymmetric":True}
-# if torch.cuda.is_available():
-#     q_static_opts = {"ActivationSymmetric":True,
-#                   "WeightSymmetric":True}
-
-# q_static_opts = {"ActivationSymmetric":False, "WeightSymmetric":False}
-
-# check layer quantization support
 
 quantized_model = quantize_static(model_input='calc_model_quant_static_prep.onnx',
                                                model_output='calc_model_quant_static.onnx',
@@ -201,12 +200,11 @@ quantized_model = quantize_static(model_input='calc_model_quant_static_prep.onnx
 # Load the static quantized model
 ort_session_quant_static = onnxruntime.InferenceSession('calc_model_quant_static.onnx')
 
-# %% [markdown]
-# # Run Models
 
-# %%
+### Run Models ###
+
 def run_onnx_model(dataloader, ort_session, input_name):
-    features = []
+    features_quant_dynamic = []
 
     for inputs in dataloader:
         # Convert the tensor to numpy
@@ -219,15 +217,10 @@ def run_onnx_model(dataloader, ort_session, input_name):
         ort_output = ort_session.run(None, ort_input)
 
         # Append the output to the list
-        features.append(ort_output[0])
+        features_quant_dynamic.append(ort_output[0])
 
-    features = torch.from_numpy(np.concatenate(features, axis=0))
-    return features
-
-
-# %% [markdown]
-# ### Static Quantization (ONNX)
-
+    features_quant_dynamic = torch.from_numpy(np.concatenate(features_quant_dynamic, axis=0))
+    return features_quant_dynamic
 
 # Check if model is a valid ONNX model
 onnx_model_quant_static = onnx.load("calc_model_quant_static.onnx")
@@ -238,7 +231,6 @@ ort_session_quant_static = onnxruntime.InferenceSession("calc_model_quant_static
 
 input_name = ort_session_quant_static.get_inputs()[0].name
 
-
 # Process database images
 db_features_quant_static = run_onnx_model(db_dataloader, ort_session_quant_static, input_name)
 print(db_features_quant_static.shape)
@@ -248,8 +240,7 @@ q_features_quant_static = run_onnx_model(q_dataloader, ort_session_quant_static,
 print(q_features_quant_static.shape)
 
 
-# %% [markdown]
-# # Average Time
+### Average Time ###
 
 def measure_time_onnx(dataloader, ort_session, input_name, iterations, desc):
     
@@ -265,77 +256,38 @@ def measure_time_onnx(dataloader, ort_session, input_name, iterations, desc):
 
     return avg_time
 
-
-# %% [markdown]
-# ### Static Quantizatoin (ONNX)
-
 db_time_quant_static = measure_time_onnx(db_dataloader, ort_session_quant_static, input_name, ITERATIONS, "Processing database dataset")
 print(f"Database Average Time: {db_time_quant_static}")
 
 q_time_quant_static = measure_time_onnx(q_dataloader, ort_session_quant_static, input_name, ITERATIONS, "Processing query dataset")
 print(f"Query Average Time: {q_time_quant_static}")
 
-# %% [markdown]
-# # Evaluation
 
-# %%
-# parameter_count = sum(p.numel() for p in model_quant.parameters())
-# print(f"Total Parameters: {parameter_count}")
+### Evaluation ###
 
-# memory_size = parameter_count * 4
-
-# for unit in ['KB', 'MB', 'GB']:
-#     if memory_size < 1024:
-#         print(f"Memory Size: {memory_size:.2f} {unit}")
-#         break
-#     memory_size /= 1024
-
-# %%
 # Convert the predictions to a numpy array
-bruh = db_features_quant_static.detach().cpu().numpy()
+features = db_features_quant_static.detach().cpu().numpy()
 
 # Get the predicted labels (assuming a binary classification problem)
-predicted_labels = (bruh > 0.9).astype(int)
+predicted_labels = (features > 0.9).astype(int)
 
 # Get the ground truth labels
-true_labels = gt_data['GThard']
+true_labels = gt_hard
 
 # Get the predicted labels
-predicted_labels = bruh.argmax(axis=1)
+predicted_labels = features.argmax(axis=1)
 
 # Calculate the accuracy
 accuracy = (predicted_labels == true_labels).mean()
 print('Accuracy:', accuracy)
 
-# %%
 similarity_matrix = cosine_similarity(db_features_quant_static.detach().numpy(), q_features_quant_static.detach().numpy())
 
-# plt.figure()
-# sns.heatmap(similarity_matrix, cmap='viridis')
-# plt.title('Similarity Matrix')
-# plt.axis('off')
-# plt.show()
-
-
-# %%
 # best matching per query in S for single-best-match VPR
 M1 = matching.best_match_per_query(similarity_matrix)
 
 # find matches with S>=thresh using an auto-tuned threshold for multi-match VPR
 M2 = matching.thresholding(similarity_matrix, 0.92)
-
-# # show M's
-# fig = plt.figure()
-# ax1 = fig.add_subplot(121)
-# ax1.imshow(M1)
-# ax1.axis('off')
-# ax1.set_title('Best match per query')
-# ax2 = fig.add_subplot(122)
-# ax2.imshow(M2)
-# ax2.axis('off')
-# ax2.set_title('Thresholding S>=thresh')
-
-# %%
 TP = np.sum(M2 & gt_hard)  # true positives
 FP = np.sum(M2 & ~gt_soft)  # false positives
 FN = np.sum(gt_hard) - TP
@@ -352,49 +304,8 @@ print('Recall:', recall)
 f1 = 2 * (precision * recall) / (precision + recall)
 print('F1 score:', f1)
 
-# %%
-# Open the file in write mode
-with open('data_quant_static.txt', 'w') as f:
+# Save data to file
+with open(DATA_TEXT_FILE, 'w') as f:
     # Write the database and query times to the file
     f.write(f"Database Average Time: {db_time_quant_static}\n")
     f.write(f"Query Average Time: {q_time_quant_static}\n")
-    # f.write(f"Parameter count: {parameter_count}\n")
-
-# %%
-# precision-recall curve
-P, R = createPR(similarity_matrix, gt_hard, gt_soft, matching='multi', n_thresh=100)
-plt.figure()
-plt.plot(R, P)
-plt.xlim(0, 1), plt.ylim(0, 1.01)
-plt.xlabel('Recall')
-plt.ylabel('Precision')
-plt.title(f'Result on {DATASET} {DATABASE_FOLDER}--{QUERY_FOLDER}')
-plt.grid('on')
-plt.draw()
-plt.show()
-
-
-# %%
-# # Plot recall against memory consumption
-# plt.figure(figsize=(10, 6))
-# plt.plot(memory_size, recall, marker='o')
-# plt.title('Recall vs Memory Consumption')
-# plt.xlabel('Memory Consumption')
-# plt.ylabel('Recall')
-# plt.show()
-
-# # Plot accuracy against memory consumption
-# plt.figure(figsize=(10, 6))
-# plt.plot(memory_size, a, marker='o')
-# plt.title('Accuracy vs Memory Consumption')
-# plt.xlabel('Memory Consumption')
-# plt.ylabel('Accuracy')
-# plt.show()
-
-# # Plot recall against parameter count
-# plt.figure(figsize=(10, 6))
-# plt.plot(parameter_count, recall, marker='o')
-# plt.title('Recall vs Parameter Count')
-# plt.xlabel('Parameter Count')
-# plt.ylabel('Recall')
-# plt.show()
